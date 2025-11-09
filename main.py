@@ -3,7 +3,7 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator  # Use @validator for Pydantic 1.x
 from fastapi.exceptions import RequestValidationError
 from app.operations import add, subtract, multiply, divide  # Ensure correct import path
 import uvicorn
@@ -23,7 +23,7 @@ class OperationRequest(BaseModel):
     a: float = Field(..., description="The first number")
     b: float = Field(..., description="The second number")
 
-    @validator('a', 'b')
+    @field_validator('a', 'b')  # Correct decorator for Pydantic 1.x
     def validate_numbers(cls, value):
         if not isinstance(value, (int, float)):
             raise ValueError('Both a and b must be numbers.')
