@@ -18,6 +18,19 @@ from tests.conftest import create_fake_user, managed_db_session
 logger = logging.getLogger(__name__)
 
 # ======================================================================================
+# GLOBAL FIXTURE: Clean the User table before each test
+# ======================================================================================
+
+@pytest.fixture(autouse=True)
+def cleanup_users(db_session):
+    """Automatically clears all users before each test to ensure isolation."""
+    db_session.query(User).delete()
+    db_session.commit()
+    yield
+    db_session.query(User).delete()
+    db_session.commit()
+
+# ======================================================================================
 # Basic Connection & Session Tests
 # ======================================================================================
 
@@ -338,3 +351,116 @@ def test_error_handling():
             session.execute(text("INVALID SQL"))
     assert "INVALID SQL" in str(exc_info.value)
 
+# ======================================================================================
+# NEW: Model Method Tests (Register / Authenticate)
+# These tests cover the logic in app/models/user.py that was previously missed.
+# ======================================================================================
+
+# Define a reusable test user dictionary that matches UserCreate schema
+test_user_data = {
+    "first_name": "Jane",
+    "last_name": "Doe",
+    "email": "jane.doe@example.com",
+    "username": "janedoe",
+    "password": "aVerySecurePassword123"
+}
+
+def test_user_register_success(db_session):
+    """
+    Test the User.register class method for a successful registration.
+    Verifies that the user is created, password is hashed, and user can be found.
+    """
+    # Register the user
+    new_user = User.register(db_session, test_user_data)
+    db_session.commit()
+
+    # Verify the returned object
+    assert new_user.id is not None
+    assert new_user.email == test_user_data["email"]
+    assert new_user.username == test_user_data["username"]
+    
+    # Verify the password was hashed and is not plain text
+    assert new_user.password != test_user_data["password"]
+    
+    # Verify the password hash is correct
+    assert new_user.verify_password(test_user_data["password"])
+    
+    # Verify the user is in the database
+    db_user = db_session.get(User, new_user.id)
+    assert db_user is not None
+    assert db_user.username == "janedoe"
+
+def test_user_register_duplicate_email(db_session):
+    """
+    Test that User.register raises a ValueError on duplicate email.
+    """
+    # Create the first user
+    User.register(db_session, test_user_data)
+    db_session.commit()
+    
+    # Create data for a second user with the same email
+    duplicate_email_data = test_user_data.copy()
+    duplicate_email_data["username"] = "janedoe_different" # different username
+    
+    # Expect a ValueError
+    with pytest.raises(ValueError, match="Username or email already exists"):
+        User.register(db_session, duplicate_email_data)
+        
+    # Ensure no new user was added
+    assert db_session.query(User).count() == 1
+
+def test_user_authenticate_success_with_username(db_session):
+    """
+    Test User.authenticate using the correct username and password.
+    """
+    # Register the user first
+    User.register(db_session, test_user_data)
+    db_session.commit()
+    
+    # Authenticate
+    auth_response = User.authenticate(
+        db_session, 
+        username=test_user_data["username"], 
+        password=test_user_data["password"]
+    )
+    
+    assert auth_response is not None
+    assert "access_token" in auth_response
+    assert auth_response["token_type"] == "bearer"
+    assert auth_response["user"]["username"] == test_user_data["username"]
+
+def test_user_authenticate_success_with_email(db_session):
+    """
+    Test User.authenticate using the correct email and password.
+    """
+    # Register the user first
+    User.register(db_session, test_user_data)
+    db_session.commit()
+    
+    # Authenticate using email
+    auth_response = User.authenticate(
+        db_session, 
+        username=test_user_data["email"],  # Note: using email as the 'username'
+        password=test_user_data["password"]
+    )
+    
+    assert auth_response is not None
+    assert "access_token" in auth_response
+    assert auth_response["user"]["email"] == test_user_data["email"]
+
+def test_user_authenticate_failure_wrong_password(db_session):
+    """
+    Test User.authenticate returns None for an incorrect password.
+    """
+    # Register the user first
+    User.register(db_session, test_user_data)
+    db_session.commit()
+
+    # Authenticate with wrong password
+    auth_response = User.authenticate(
+        db_session, 
+        username=test_user_data["username"], 
+        password="WRONG_PASSWORD"
+    )
+    
+    assert auth_response is None
