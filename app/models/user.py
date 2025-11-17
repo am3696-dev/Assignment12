@@ -3,9 +3,9 @@ from datetime import datetime, timedelta
 import uuid
 from typing import Optional, Dict, Any
 
-from sqlalchemy import Column, String, DateTime, Boolean
+from sqlalchemy import Column, String, DateTime, Boolean  # <-- CORRECTED (relationship removed)
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import declarative_base, relationship  # <-- CORRECTED (relationship added)
 from sqlalchemy.exc import IntegrityError
 from passlib.context import CryptContext
 from jose import JWTError, jwt
@@ -37,6 +37,10 @@ class User(Base):
     last_login = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    # --- THIS IS THE NEW LINE ---
+    calculations = relationship("Calculation", back_populates="owner")
+    # ----------------------------
 
     def __repr__(self):
         return f"<User(name={self.first_name} {self.last_name}, email={self.email})>"
@@ -76,19 +80,19 @@ class User(Base):
             password = user_data.get('password', '')
             if len(password) < 6:  # Strictly less than 6 characters
                 raise ValueError("Password must be at least 6 characters long")
-            
+
             # Check if email/username exists
             existing_user = db.query(cls).filter(
                 (cls.email == user_data.get('email')) |
                 (cls.username == user_data.get('username'))
             ).first()
-            
+
             if existing_user:
                 raise ValueError("Username or email already exists")
 
             # Validate using Pydantic schema
             user_create = UserCreate.model_validate(user_data)
-            
+
             # Create new user instance
             new_user = cls(
                 first_name=user_create.first_name,
@@ -99,13 +103,13 @@ class User(Base):
                 is_active=True,
                 is_verified=False
             )
-            
+
             db.add(new_user)
             db.flush()
             return new_user
-            
+
         except ValidationError as e:
-            raise ValueError(str(e)) # pragma: no cover
+            raise ValueError(str(e))  # pragma: no cover
         except ValueError as e:
             raise e
 
@@ -117,7 +121,7 @@ class User(Base):
         ).first()
 
         if not user or not user.verify_password(password):
-            return None # pragma: no cover
+            return None  # pragma: no cover
 
         user.last_login = datetime.utcnow()
         db.commit()
