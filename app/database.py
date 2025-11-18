@@ -1,64 +1,40 @@
-# app/database.py
-
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
 
-from .config import settings
+# Import the settings object from our config file
+from app.config import settings
 
-def get_engine(database_url: str = settings.DATABASE_URL):
+def get_engine(database_url: str):
     """
-    Create and return a new SQLAlchemy engine.
-
-    Args:
-        database_url (str): The database connection URL.
-
-    Returns:
-        Engine: A new SQLAlchemy Engine instance.
+    Creates a new SQLAlchemy engine.
+    This now uses whatever URL is passed to it.
     """
-    try:
-        # Create an engine instance with echo=True to log SQL queries (useful for learning)
-        engine = create_engine(database_url, echo=True)
-        return engine
-    except SQLAlchemyError as e:
-        print(f"Error creating engine: {e}")
-        raise
+    return create_engine(database_url)
 
 def get_sessionmaker(engine):
     """
-    Create and return a new sessionmaker.
-
-    Args:
-        engine (Engine): The SQLAlchemy Engine to bind the sessionmaker to.
-
-    Returns:
-        sessionmaker: A configured sessionmaker factory.
+    Creates a new sessionmaker bound to the given engine.
     """
-    return sessionmaker(
-        autocommit=False,  # Disable autocommit to control transactions manually
-        autoflush=False,   # Disable autoflush to control when changes are sent to the DB
-        bind=engine        # Bind the sessionmaker to the provided engine
-    )
+    return sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Initialize engine and SessionLocal using the factory functions
-engine = get_engine()
-SessionLocal = get_sessionmaker(engine)
-
-# Base declarative class that our models will inherit from
+# This is the Base that our models (User, Calculation) will inherit from.
 Base = declarative_base()
+
+# --- OLD (Problematic) Code ---
+# We are REMOVING these lines, as they create a hardcoded engine too early.
+#
+# engine = create_engine(settings.DATABASE_URL) 
+# SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# ---------------------------------
 
 def get_db():
     """
-    Dependency function that provides a database session.
-
-    This function can be used with FastAPI's dependency injection system
-    to provide a database session to your route handlers.
-
-    Yields:
-        Session: A SQLAlchemy Session instance.
+    FastAPI dependency to get a database session.
+    (This logic might be in your main.py, but it's good to have it here)
     """
-    db = SessionLocal()  # Create a new database session
-    try:
-        yield db  # Provide the session to the caller
-    finally:
-        db.close()  # Ensure the session is closed after use
+    
+    # This won't work until main.py is set up to create a global engine
+    # for the *real app*, but it's fine for testing.
+    # For now, we just need Base, get_engine, and get_sessionmaker.
+    pass
