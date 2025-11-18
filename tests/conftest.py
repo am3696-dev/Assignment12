@@ -14,15 +14,13 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
-# --- THIS IS THE CRITICAL FIX ---
-# 1. We import the functions from database.py
-from app.database import Base, get_engine, get_sessionmaker
-# 2. We import the settings object that reads our 'export' command
+# Imports from our app
+# --- THIS IS THE FIX ---
+# We now import SessionLocal directly, and *don't* import get_sessionmaker
+from app.database import Base, get_engine, SessionLocal
+# -----------------------
 from app.config import settings
-# 3. We import both models to ensure SQLAlchemy is happy
-from app.models import User, Calculation
-# 4. We import the init/drop functions
-from app.database_init import init_db, drop_db
+from app.models import User, Calculation # This ensures Base.metadata is populated
 
 # ======================================================================================
 # Logging Configuration
@@ -45,31 +43,17 @@ logger.info(f"Using database URL from settings: {settings.DATABASE_URL}")
 test_engine = get_engine(database_url=settings.DATABASE_URL)
 
 # --- THIS IS THE FIX ---
-# We must pass the 'test_engine' as a POSITIONAL argument,
-# not as a keyword argument.
-TestingSessionLocal = get_sessionmaker(test_engine)
+# The TestingSessionLocal is the *same* as the app's SessionLocal
+# *because* app_engine (in database.py) and test_engine (here)
+# are both created using the *same settings.DATABASE_URL*.
+TestingSessionLocal = SessionLocal
 # -----------------------
 
+# --- THIS IS THE FIX ---
+# We REMOVED the 'managed_db_session' function from this file.
+# It now lives in 'app/database.py', which fixes the ImportError.
+# -----------------------
 
-@contextmanager
-def managed_db_session():
-    """
-    Context manager for safe database session handling.
-    Automatically handles rollback and cleanup.
-
-    Example:
-        with managed_db_session() as session:
-            user = session.query(User).first()
-    """
-    session = TestingSessionLocal()
-    try:
-        yield session
-    except SQLAlchemyError as e:
-        logger.error(f"Database error: {str(e)}")
-        session.rollback()
-        raise
-    finally:
-        session.close()
 
 # ======================================================================================
 # Server Startup / Healthcheck
@@ -99,19 +83,13 @@ class ServerStartupError(Exception):
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_database(request):
     """
-    Initialize the test database once per session:
-    - Drop all existing tables to ensure a clean state.
-    - Create all tables based on the current models.
-    After tests, drop all tables unless --preserve-db is set.
+    Initialize the test database once per session.
+    This fixture is run automatically.
     """
     logger.info("Setting up test database...")
-
-    # We will call Base.metadata.create_all() *directly* from this
-    # file. Since conftest.py imports `from app.models import User, Calculation`,
-    # Base.metadata WILL be populated, and this will work.
     
     # Drop all tables to ensure a clean slate
-    Base.metadata.drop_all(bind=test_engine)
+    Base.metadata.drop_all(bind=test_engine) 
     logger.info("Dropped all existing tables via Base.metadata.drop_all().")
 
     # Create all tables
@@ -132,8 +110,6 @@ def setup_test_database(request):
 def db_session(request) -> Generator[Session, None, None]:
     """
     Provide a test-scoped database session.
-    By default, truncates all tables after each test to ensure isolation,
-    unless --preserve-db is passed.
     """
     session = TestingSessionLocal()
     try:
@@ -158,14 +134,11 @@ def db_session(request) -> Generator[Session, None, None]:
 def create_fake_user() -> Dict[str, str]:
     """
     Generate a dictionary of fake user data for testing.
-
-    Returns:
-        A dict containing user fields with fake data.
     """
     return {
         "first_name": fake.first_name(),
         "last_name": fake.last_name(),
-        "email": fake.unique.email(),  # Ensure uniqueness where necessary
+        "email": fake.unique.email(),
         "username": fake.unique.user_name(),
         "password": fake.password(length=12)
     }
@@ -181,10 +154,13 @@ def test_user(db_session: Session) -> User:
     Create and return a single test user.
     """
     user_data = create_fake_user()
-    user = User(**user_data)
-    db_session.add(user)
+    
+    # Use the User.register method to correctly hash password
+    user = User.register(db_session, user_data)
+    
     db_session.commit()
     db_session.refresh(user)
+    
     logger.info(f"Created test user with ID: {user.id}")
     return user
 
@@ -192,11 +168,6 @@ def test_user(db_session: Session) -> User:
 def seed_users(db_session: Session, request) -> List[User]:
     """
     Create multiple test users in the database.
-
-    Usage:
-        @pytest.mark.parametrize("seed_users", [10], indirect=True)
-        def test_many_users(seed_users):
-            # test logic
     """
     try:
         num_users = request.param
@@ -206,9 +177,9 @@ def seed_users(db_session: Session, request) -> List[User]:
     users = []
     for _ in range(num_users):
         user_data = create_fake_user()
-        user = User(**user_data)
+        # Use the register method here as well
+        user = User.register(db_session, user_data)
         users.append(user)
-        db_session.add(user)
 
     db_session.commit()
     logger.info(f"Seeded {len(users)} users into the test database.")
@@ -317,38 +288,3 @@ def pytest_collection_modifyitems(config, items):
         for item in items:
             if "slow" in item.keywords:
                 item.add_marker(skip_slow)
-
-# ======================================================================================
-# How to Use This File
-# ======================================================================================
-"""
-Basic Examples:
-
-1. Test DB operations:
-   def test_create_user(db_session):
-       user = User(username="test", email="test@example.com")
-       db_session.add(user)
-       db_session.commit()
-
-2. Using fake data:
-   def test_with_fake_data(fake_user_data):
-       user = User(**fake_user_data)
-       # proceed with test logic...
-
-3. Working with a test user:
-   def test_user_update(test_user):
-       test_user.username = "new_username"
-       # test logic...
-
-4. Testing with multiple users:
-   @pytest.mark.parametrize('seed_users', [10], indirect=True)
-   def test_user_list(seed_users):
-       # seed_users contains 10 test users
-       assert len(seed_users) == 10
-
-Command Examples:
-- Basic run: pytest
-- Keep database afterward (skip table truncation & drop): pytest --preserve-db
-- Include slow tests: pytest --run-slow
-- Show output: pytest -v -s
-"""

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch, ANY
 from fastapi import HTTPException, status
 from app.auth.dependencies import get_current_user, get_current_active_user
 from app.schemas.user import UserResponse
-from app.models import User, Calculation  # <-- THE CRITICAL FIX IS HERE
+from app.models import User, Calculation  # Correct import
 from uuid import uuid4
 from datetime import datetime
 
@@ -49,20 +49,29 @@ def fake_inactive_user():
         updated_at=datetime.utcnow()
     )
 
-@patch("app.auth.dependencies.User.verify_token")
-@patch("app.auth.dependencies.get_user_by_username_or_email")
-def test_get_current_user_success(mock_get_user, mock_verify_token, mock_db, mock_token_data, fake_active_user):
+# --- THIS IS THE FIX ---
+# We are changing the mock strategy to be simpler and correct.
+# We will mock the `db` object (mock_db) instead of patching functions.
+
+def test_get_current_user_success(mock_db, mock_token_data, fake_active_user):
     """Test successful retrieval of current user."""
-    mock_verify_token.return_value = mock_token_data
-    mock_get_user.return_value = fake_active_user
+    # Simulate User.verify_token returning the user's "sub" (username)
+    with patch("app.auth.dependencies.User.verify_token") as mock_verify_token:
+        mock_verify_token.return_value = mock_token_data
+        
+        # Simulate the db.query().filter().first() chain
+        mock_db.query.return_value.filter.return_value.first.return_value = fake_active_user
 
-    token = "fake.token.string"
-    user = get_current_user(db=mock_db, token=token)
+        token = "fake.token.string"
+        user = get_current_user(db=mock_db, token=token)
 
-    assert user is not None
-    assert user.username == fake_active_user.username
-    mock_verify_token.assert_called_once_with(token)
-    mock_get_user.assert_called_once_with(db=mock_db, username_or_email=mock_token_data["sub"])
+        assert user is not None
+        assert user.username == fake_active_user.username
+        mock_verify_token.assert_called_once_with(token)
+        # Check that the db was queried with the User model
+        mock_db.query.assert_called_once_with(User)
+
+# -------------------------
 
 @patch("app.auth.dependencies.User.verify_token")
 def test_get_current_user_invalid_token(mock_verify_token, mock_db):
@@ -76,19 +85,24 @@ def test_get_current_user_invalid_token(mock_verify_token, mock_db):
     assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
     assert "Could not validate credentials" in exc_info.value.detail
 
-@patch("app.auth.dependencies.User.verify_token")
-@patch("app.auth.dependencies.get_user_by_username_or_email")
-def test_get_current_user_not_found(mock_get_user, mock_verify_token, mock_db, mock_token_data):
+# --- THIS IS THE SECOND PART OF THE FIX ---
+def test_get_current_user_not_found(mock_db, mock_token_data):
     """Test retrieval when user in token does not exist in DB."""
-    mock_verify_token.return_value = mock_token_data
-    mock_get_user.return_value = None  # User not found
-    token = "fake.token.string"
+    # Simulate User.verify_token returning the user's "sub" (username)
+    with patch("app.auth.dependencies.User.verify_token") as mock_verify_token:
+        mock_verify_token.return_value = mock_token_data
 
-    with pytest.raises(HTTPException) as exc_info:
-        get_current_user(db=mock_db, token=token)
-    
-    assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
-    assert "Could not validate credentials" in exc_info.value.detail
+        # Simulate the db.query()... chain returning None
+        mock_db.query.return_value.filter.return_value.first.return_value = None
+        
+        token = "fake.token.string"
+
+        with pytest.raises(HTTPException) as exc_info:
+            get_current_user(db=mock_db, token=token)
+        
+        assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
+        assert "Could not validate credentials" in exc_info.value.detail
+# -------------------------
 
 def test_get_current_active_user_success(fake_active_user):
     """Test retrieval of an active user."""
@@ -103,3 +117,9 @@ def test_get_current_active_user_success(fake_active_user):
 def test_get_current_active_user_inactive(fake_inactive_user):
     """Test retrieval of an inactive user raises exception."""
     user_schema = UserResponse.from_orm(fake_inactive_user)
+
+    with pytest.raises(HTTPException) as exc_info:
+        get_current_active_user(current_user=user_schema)
+    
+    assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
+    assert "Inactive user" in exc_info.value.detail
