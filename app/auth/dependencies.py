@@ -1,52 +1,54 @@
-# app/auth/dependencies.py
-
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from app.models.user import User
-from app.schemas.user import UserResponse
+from sqlalchemy.orm import Session
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+# --- THIS IS THE FIX ---
+from app.models import User  # Changed from app.models.user import User
+# -----------------------
+
+from app.schemas.user import UserResponse
+from app.database import managed_db_session
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
 def get_current_user(
-    db,
+    db: Session = Depends(managed_db_session), 
     token: str = Depends(oauth2_scheme)
 ) -> UserResponse:
-    """Dependency to get current user from JWT token."""
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    """
+    Get the current user from the provided token.
+    """
+    token_data = User.verify_token(token)
+    if not token_data or "sub" not in token_data:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     
-    user_id = User.verify_token(token)
-    if user_id is None:
-        raise credentials_exception
+    # Use the 'sub' (username) from the token to find the user
+    username = token_data["sub"]
     
-    user = db.query(User).filter(User.id == user_id).first()
+    # Query the database for the user
+    user = db.query(User).filter(User.username == username).first()
+    
     if user is None:
-        raise credentials_exception
-        
-    return UserResponse.model_validate({
-    "id": user.id,
-    "username": user.username,
-    "email": user.email,
-    "first_name": user.first_name or "",
-    "last_name": user.last_name or "",
-    "is_active": user.is_active,
-    "is_verified": user.is_verified,
-    "created_at": user.created_at,
-    "updated_at": user.updated_at,
-})
-
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     
+    # Return the user as a Pydantic model
+    return UserResponse.from_orm(user)
 
 def get_current_active_user(
     current_user: UserResponse = Depends(get_current_user)
 ) -> UserResponse:
-    """Dependency to get current active user."""
+    """
+    Get the current active user.
+    Raises an exception if the user is inactive.
+    """
     if not current_user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Inactive user"
-        )
+        raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
