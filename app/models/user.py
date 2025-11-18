@@ -35,8 +35,7 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
-    # Relationship to Calculation
-    calculations = relationship("Calculation", back_populates="owner", cascade="all, delete-orphan")
+    calculations = relationship("Calculation", back_populates="owner")
 
     def __repr__(self):
         return f"<User(name={self.first_name} {self.last_name}, email={self.email})>"
@@ -80,7 +79,6 @@ class User(Base):
                 raise ValueError("Username or email already exists")
 
             user_create = UserCreate.model_validate(user_data)
-
             new_user = cls(
                 first_name=user_create.first_name,
                 last_name=user_create.last_name,
@@ -90,11 +88,9 @@ class User(Base):
                 is_active=True,
                 is_verified=False
             )
-
             db.add(new_user)
             db.flush()
             return new_user
-
         except ValidationError as e:
             raise ValueError(str(e))
         except ValueError as e:
@@ -118,5 +114,4 @@ class User(Base):
             token_type="bearer",
             user=user_response
         )
-
         return token_response.model_dump()

@@ -12,21 +12,18 @@ def get_engine(database_url: str):
     """
     return create_engine(database_url)
 
+# --- THIS IS THE FIX ---
+# Your old file had a broken version of this function.
+# This version correctly takes an 'engine' object as an argument.
 def get_sessionmaker(engine):
     """
     Creates a new sessionmaker bound to the given engine.
     """
     return sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# -----------------------
 
 # This is the Base that our models (User, Calculation) will inherit from.
 Base = declarative_base()
-
-# --- OLD (Problematic) Code ---
-# We are REMOVING these lines, as they create a hardcoded engine too early.
-#
-# engine = create_engine(settings.DATABASE_URL) 
-# SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-# ---------------------------------
 
 def get_db():
     """
