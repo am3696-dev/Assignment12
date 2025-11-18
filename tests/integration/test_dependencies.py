@@ -1,38 +1,46 @@
-# tests/auth/test_dependencies.py
+# tests/integration/test_dependencies.py
 
 import pytest
 from unittest.mock import MagicMock, patch, ANY
 from fastapi import HTTPException, status
 from app.auth.dependencies import get_current_user, get_current_active_user
 from app.schemas.user import UserResponse
-from app.models import User, Calculation
+from app.models import User, Calculation  # This import is correct
 from uuid import uuid4
 from datetime import datetime
 
-# Sample user data for testing
-sample_user = User(
-    id=uuid4(),
-    username="testuser",
-    email="test@example.com",
-    first_name="Test",
-    last_name="User",
-    is_active=True,
-    is_verified=True,
-    created_at=datetime.utcnow(),
-    updated_at=datetime.utcnow()
-)
+# --- THIS IS THE FIX ---
+# We move the User creation from the module level into fixtures.
 
-inactive_user = User(
-    id=uuid4(),
-    username="inactiveuser",
-    email="inactive@example.com",
-    first_name="Inactive",
-    last_name="User",
-    is_active=False,
-    is_verified=False,
-    created_at=datetime.utcnow(),
-    updated_at=datetime.utcnow()
-)
+@pytest.fixture
+def sample_user():
+    """Fixture to provide a sample active user object."""
+    return User(
+        id=uuid4(),
+        username="testuser",
+        email="test@example.com",
+        first_name="Test",
+        last_name="User",
+        is_active=True,
+        is_verified=True,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow()
+    )
+
+@pytest.fixture
+def inactive_user():
+    """Fixture to provide a sample inactive user object."""
+    return User(
+        id=uuid4(),
+        username="inactiveuser",
+        email="inactive@example.com",
+        first_name="Inactive",
+        last_name="User",
+        is_active=False,
+        is_verified=False,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow()
+    )
 
 @pytest.fixture
 def mock_db():
@@ -43,7 +51,8 @@ def mock_verify_token():
     with patch.object(User, 'verify_token') as mock:
         yield mock
 
-def test_get_current_user_valid_token_existing_user(mock_db, mock_verify_token):
+# Note: The test functions now take 'sample_user' as an argument
+def test_get_current_user_valid_token_existing_user(mock_db, mock_verify_token, sample_user):
     mock_verify_token.return_value = sample_user.id
     mock_db.query.return_value.filter.return_value.first.return_value = sample_user
 
@@ -77,7 +86,8 @@ def test_get_current_user_invalid_token(mock_db, mock_verify_token):
     mock_verify_token.assert_called_once_with("invalidtoken")
     mock_db.query.assert_not_called()
 
-def test_get_current_user_valid_token_nonexistent_user(mock_db, mock_verify_token):
+# Note: The test function now takes 'sample_user' as an argument
+def test_get_current_user_valid_token_nonexistent_user(mock_db, mock_verify_token, sample_user):
     mock_verify_token.return_value = sample_user.id
     mock_db.query.return_value.filter.return_value.first.return_value = None
 
@@ -92,7 +102,8 @@ def test_get_current_user_valid_token_nonexistent_user(mock_db, mock_verify_toke
     mock_db.query.return_value.filter.assert_called_once_with(ANY)
     mock_db.query.return_value.filter.return_value.first.assert_called_once()
 
-def test_get_current_active_user_active(mock_db, mock_verify_token):
+# Note: The test function now takes 'sample_user' as an argument
+def test_get_current_active_user_active(mock_db, mock_verify_token, sample_user):
     mock_verify_token.return_value = sample_user.id
     mock_db.query.return_value.filter.return_value.first.return_value = sample_user
 
@@ -102,7 +113,8 @@ def test_get_current_active_user_active(mock_db, mock_verify_token):
     assert isinstance(active_user, UserResponse)
     assert active_user.is_active is True
 
-def test_get_current_active_user_inactive(mock_db, mock_verify_token):
+# Note: The test function now takes 'inactive_user' as an argument
+def test_get_current_active_user_inactive(mock_db, mock_verify_token, inactive_user):
     mock_verify_token.return_value = inactive_user.id
     mock_db.query.return_value.filter.return_value.first.return_value = inactive_user
 

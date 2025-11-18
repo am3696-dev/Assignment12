@@ -4,7 +4,7 @@ import pytest
 from uuid import UUID
 import pydantic_core
 from sqlalchemy.exc import IntegrityError
-from app.models.user import User
+from app.models import User, Calculation  # <-- THIS IS THE CORRECTED IMPORT
 
 def test_password_hashing(db_session, fake_user_data):
     """Test password hashing and verification functionality"""

@@ -14,9 +14,14 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
+# --- THIS IS THE CRITICAL FIX ---
+# 1. We import the functions from database.py
 from app.database import Base, get_engine, get_sessionmaker
-from app.models.user import User
+# 2. We import the settings object that reads our 'export' command
 from app.config import settings
+# 3. We import both models to ensure SQLAlchemy is happy
+from app.models import User, Calculation
+# ---------------------------------
 from app.database_init import init_db, drop_db
 
 # ======================================================================================
@@ -34,29 +39,16 @@ logger = logging.getLogger(__name__)
 fake = Faker()
 Faker.seed(12345)
 
-logger.info(f"Using database URL: {settings.DATABASE_URL}")
+# This log message will now print the URL from your 'export' command
+# If it says '...:5433/testdb', you know it's working!
+logger.info(f"Using database URL from settings: {settings.DATABASE_URL}")
 
-# Create an engine and sessionmaker based on DATABASE_URL using factory functions
+# --- THIS IS THE OTHER CRITICAL FIX ---
+# We create a TEST engine using the URL from our 'export' command
 test_engine = get_engine(database_url=settings.DATABASE_URL)
+# We create a TEST sessionmaker from that test engine
 TestingSessionLocal = get_sessionmaker(engine=test_engine)
-
-# ======================================================================================
-# Helper Functions
-# ======================================================================================
-def create_fake_user() -> Dict[str, str]:
-    """
-    Generate a dictionary of fake user data for testing.
-
-    Returns:
-        A dict containing user fields with fake data.
-    """
-    return {
-        "first_name": fake.first_name(),
-        "last_name": fake.last_name(),
-        "email": fake.unique.email(),  # Ensure uniqueness where necessary
-        "username": fake.unique.user_name(),
-        "password": fake.password(length=12)
-    }
+# ---------------------------------------
 
 @contextmanager
 def managed_db_session():
@@ -114,17 +106,20 @@ def setup_test_database(request):
     """
     logger.info("Setting up test database...")
 
+    # --- THE FIX ---
+    # We are removing the redundant create_all/drop_all calls from here
+    # and relying *only* on the init_db() and drop_db() functions.
+    
     # Drop all tables to ensure a clean slate
-    Base.metadata.drop_all(bind=test_engine)
-    logger.info("Dropped all existing tables.")
+    # Base.metadata.drop_all(bind=test_engine) <-- REMOVED
+    drop_db() # <-- USE THIS INSTEAD
+    logger.info("Dropped all existing tables via drop_db().")
 
     # Create all tables
-    Base.metadata.create_all(bind=test_engine)
-    logger.info("Created all tables based on models.")
-
-    # Initialize the database (e.g., run migrations or seed data)
-    init_db()
-    logger.info("Initialized the test database with initial data.")
+    # Base.metadata.create_all(bind=test_engine) <-- REMOVED
+    init_db() # <-- USE THIS INSTEAD
+    logger.info("Created all tables based on models via init_db().")
+    # -----------------
 
     yield  # All tests run here
 
@@ -163,6 +158,21 @@ def db_session(request) -> Generator[Session, None, None]:
 # ======================================================================================
 # Test Data Fixtures
 # ======================================================================================
+def create_fake_user() -> Dict[str, str]:
+    """
+    Generate a dictionary of fake user data for testing.
+
+    Returns:
+        A dict containing user fields with fake data.
+    """
+    return {
+        "first_name": fake.first_name(),
+        "last_name": fake.last_name(),
+        "email": fake.unique.email(),  # Ensure uniqueness where necessary
+        "username": fake.unique.user_name(),
+        "password": fake.password(length=12)
+    }
+
 @pytest.fixture
 def fake_user_data() -> Dict[str, str]:
     """Provide a dictionary of fake user data."""
