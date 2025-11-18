@@ -53,7 +53,10 @@ def mock_verify_token():
 
 # Note: The test functions now take 'sample_user' as an argument
 def test_get_current_user_valid_token_existing_user(mock_db, mock_verify_token, sample_user):
-    mock_verify_token.return_value = sample_user.id
+    # --- THIS IS THE FIX ---
+    # The token payload contains the username in the 'sub' field.
+    mock_verify_token.return_value = {"sub": sample_user.username}
+    # -----------------------
     mock_db.query.return_value.filter.return_value.first.return_value = sample_user
 
     user_response = get_current_user(db=mock_db, token="validtoken")
@@ -88,7 +91,10 @@ def test_get_current_user_invalid_token(mock_db, mock_verify_token):
 
 # Note: The test function now takes 'sample_user' as an argument
 def test_get_current_user_valid_token_nonexistent_user(mock_db, mock_verify_token, sample_user):
-    mock_verify_token.return_value = sample_user.id
+    # --- THIS IS THE FIX ---
+    # The token payload contains the username in the 'sub' field.
+    mock_verify_token.return_value = {"sub": sample_user.username}
+    # -----------------------
     mock_db.query.return_value.filter.return_value.first.return_value = None
 
     with pytest.raises(HTTPException) as exc_info:
@@ -104,7 +110,9 @@ def test_get_current_user_valid_token_nonexistent_user(mock_db, mock_verify_toke
 
 # Note: The test function now takes 'sample_user' as an argument
 def test_get_current_active_user_active(mock_db, mock_verify_token, sample_user):
-    mock_verify_token.return_value = sample_user.id
+    # --- THIS IS THE FIX ---
+    mock_verify_token.return_value = {"sub": sample_user.username}
+    # -----------------------
     mock_db.query.return_value.filter.return_value.first.return_value = sample_user
 
     current_user = get_current_user(db=mock_db, token="validtoken")
@@ -115,7 +123,9 @@ def test_get_current_active_user_active(mock_db, mock_verify_token, sample_user)
 
 # Note: The test function now takes 'inactive_user' as an argument
 def test_get_current_active_user_inactive(mock_db, mock_verify_token, inactive_user):
-    mock_verify_token.return_value = inactive_user.id
+    # --- THIS IS THE FIX ---
+    mock_verify_token.return_value = {"sub": inactive_user.username}
+    # -----------------------
     mock_db.query.return_value.filter.return_value.first.return_value = inactive_user
 
     current_user = get_current_user(db=mock_db, token="validtoken")
