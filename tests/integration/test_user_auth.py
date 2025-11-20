@@ -4,7 +4,7 @@ import pytest
 from uuid import UUID
 import pydantic_core
 from sqlalchemy.exc import IntegrityError
-from app.models import User, Calculation  # <-- THIS IS THE CORRECTED IMPORT
+from app.models.user import User
 
 def test_password_hashing(db_session, fake_user_data):
     """Test password hashing and verification functionality"""
@@ -16,10 +16,7 @@ def test_password_hashing(db_session, fake_user_data):
         last_name=fake_user_data['last_name'],
         email=fake_user_data['email'],
         username=fake_user_data['username'],
-        # --- THIS IS FIX 1 ---
-        # The column is 'hashed_password', not 'password'
-        hashed_password=hashed
-        # -----------------------
+        password=hashed
     )
     
     assert user.verify_password(original_password) is True
@@ -159,13 +156,9 @@ def test_token_creation_and_verification(db_session, fake_user_data):
     # Create token
     token = User.create_access_token({"sub": str(user.id)})
     
-    # --- THIS IS FIX 2 ---
-    # verify_token returns the whole payload dict
-    decoded_payload = User.verify_token(token)
-    
-    # We must assert the 'sub' field from the payload
-    assert decoded_payload["sub"] == str(user.id)
-    # -----------------------
+    # Verify token
+    decoded_user_id = User.verify_token(token)
+    assert decoded_user_id == user.id
 
 def test_authenticate_with_email(db_session, fake_user_data):
     """Test authentication using email instead of username"""

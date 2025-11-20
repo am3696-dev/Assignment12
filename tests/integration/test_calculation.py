@@ -1,92 +1,152 @@
 import pytest
-from pydantic import ValidationError
-from sqlalchemy.orm import Session
+import uuid
 
-# --- THIS IS THE FIX ---
-# Changed from app.models.user import User and app.models.calculation import Calculation
-from app.models import User, Calculation
-# -----------------------
+from app.models.calculation import (
+    Calculation,
+    Addition,
+    Subtraction,
+    Multiplication,
+    Division,
+)
 
-from app.schemas.calculation import CalculationCreate, OperationType
-from app.operations.calculation_logic import perform_calculation
+# Helper function to create a dummy user_id for testing.
+def dummy_user_id():
+    return uuid.uuid4()
 
-# --- Unit Tests (moved from separate file) ---
+def test_addition_get_result():
+    """
+    Test that Addition.get_result returns the correct sum.
+    """
+    inputs = [10, 5, 3.5]
+    addition = Addition(user_id=dummy_user_id(), inputs=inputs)
+    result = addition.get_result()
+    assert result == sum(inputs), f"Expected {sum(inputs)}, got {result}"
 
-def test_calculation_factory():
+def test_subtraction_get_result():
     """
-    Unit test for the calculation logic factory.
+    Test that Subtraction.get_result returns the correct difference.
     """
-    assert perform_calculation(10, 5, OperationType.ADD) == 15
-    assert perform_calculation(10, 5, OperationType.SUBTRACT) == 5
-    assert perform_calculation(10, 5, OperationType.MULTIPLY) == 50
-    assert perform_calculation(10, 5, OperationType.DIVIDE) == 2
+    inputs = [20, 5, 3]
+    subtraction = Subtraction(user_id=dummy_user_id(), inputs=inputs)
+    # Expected: 20 - 5 - 3 = 12
+    result = subtraction.get_result()
+    assert result == 12, f"Expected 12, got {result}"
 
-def test_schema_valid_creation():
+def test_multiplication_get_result():
     """
-    Unit test for valid Pydantic schema creation.
+    Test that Multiplication.get_result returns the correct product.
     """
-    data = {"a": 10, "b": 5, "type": "Add"}
-    calc_schema = CalculationCreate(**data)
-    assert calc_schema.a == 10
-    assert calc_schema.b == 5
-    assert calc_schema.type == OperationType.ADD
+    inputs = [2, 3, 4]
+    multiplication = Multiplication(user_id=dummy_user_id(), inputs=inputs)
+    result = multiplication.get_result()
+    assert result == 24, f"Expected 24, got {result}"
 
-def test_schema_division_by_zero():
+def test_division_get_result():
     """
-    Unit test to ensure Pydantic schema validation catches
-    division by zero.
+    Test that Division.get_result returns the correct quotient.
     """
-    data = {"a": 10, "b": 0, "type": "Divide"}
-    with pytest.raises(ValidationError) as exc_info:
-        CalculationCreate(**data)
-    
-    # Check that the error message is what we expect
-    assert "Division by zero is not allowed" in str(exc_info.value)
+    inputs = [100, 2, 5]
+    division = Division(user_id=dummy_user_id(), inputs=inputs)
+    # Expected: 100 / 2 / 5 = 10
+    result = division.get_result()
+    assert result == 10, f"Expected 10, got {result}"
 
-# --- Integration Test ---
+def test_division_by_zero():
+    """
+    Test that Division.get_result raises ValueError when dividing by zero.
+    """
+    inputs = [50, 0, 5]
+    division = Division(user_id=dummy_user_id(), inputs=inputs)
+    with pytest.raises(ValueError, match="Cannot divide by zero."):
+        division.get_result()
 
-def test_create_calculation_integration(db_session: Session, test_user: User):
+def test_calculation_factory_addition():
     """
-    Integration test to:
-    1. Use the 'test_user' fixture.
-    2. Create a CalculationCreate schema.
-    3. Perform the calculation.
-    4. Create a Calculation DB model.
-    5. Save it to the database.
-    6. Query the database to verify it was saved correctly.
+    Test the Calculation.create factory method for addition.
     """
-    
-    # 1. User is created by the 'test_user' fixture
-    assert test_user.id is not None
-    
-    # 2. Create the schema
-    calc_data = CalculationCreate(a=20, b=10, type=OperationType.DIVIDE)
-    
-    # 3. Perform the calculation
-    result = perform_calculation(calc_data.a, calc_data.b, calc_data.type)
-    assert result == 2.0
-    
-    # 4. Create the Calculation DB model
-    db_calculation = Calculation(
-        a=calc_data.a,
-        b=calc_data.b,
-        type=calc_data.type.value, # Store the string value
-        result=result,
-        owner_id=test_user.id # Link to the user
+    inputs = [1, 2, 3]
+    calc = Calculation.create(
+        calculation_type='addition',
+        user_id=dummy_user_id(),
+        inputs=inputs,
     )
-    
-    # 5. Save to the database
-    db_session.add(db_calculation)
-    db_session.commit()
-    db_session.refresh(db_calculation)
-    
-    # 6. Query to verify
-    assert db_calculation.id is not None
-    assert db_calculation.a == 20
-    assert db_calculation.b == 10
-    assert db_calculation.type == "Divide"
-    assert db_calculation.result == 2.0
-    assert db_calculation.owner_id == test_user.id
-    
-    # Verify the relationship
-    assert db_calculation.owner.username == test_user.username
+    # Check that the returned instance is an Addition.
+    assert isinstance(calc, Addition), "Factory did not return an Addition instance."
+    assert calc.get_result() == sum(inputs), "Incorrect addition result."
+
+def test_calculation_factory_subtraction():
+    """
+    Test the Calculation.create factory method for subtraction.
+    """
+    inputs = [10, 4]
+    calc = Calculation.create(
+        calculation_type='subtraction',
+        user_id=dummy_user_id(),
+        inputs=inputs,
+    )
+    # Expected: 10 - 4 = 6
+    assert isinstance(calc, Subtraction), "Factory did not return a Subtraction instance."
+    assert calc.get_result() == 6, "Incorrect subtraction result."
+
+def test_calculation_factory_multiplication():
+    """
+    Test the Calculation.create factory method for multiplication.
+    """
+    inputs = [3, 4, 2]
+    calc = Calculation.create(
+        calculation_type='multiplication',
+        user_id=dummy_user_id(),
+        inputs=inputs,
+    )
+    # Expected: 3 * 4 * 2 = 24
+    assert isinstance(calc, Multiplication), "Factory did not return a Multiplication instance."
+    assert calc.get_result() == 24, "Incorrect multiplication result."
+
+def test_calculation_factory_division():
+    """
+    Test the Calculation.create factory method for division.
+    """
+    inputs = [100, 2, 5]
+    calc = Calculation.create(
+        calculation_type='division',
+        user_id=dummy_user_id(),
+        inputs=inputs,
+    )
+    # Expected: 100 / 2 / 5 = 10
+    assert isinstance(calc, Division), "Factory did not return a Division instance."
+    assert calc.get_result() == 10, "Incorrect division result."
+
+def test_calculation_factory_invalid_type():
+    """
+    Test that Calculation.create raises a ValueError for an unsupported calculation type.
+    """
+    with pytest.raises(ValueError, match="Unsupported calculation type"):
+        Calculation.create(
+            calculation_type='modulus',  # unsupported type
+            user_id=dummy_user_id(),
+            inputs=[10, 3],
+        )
+
+def test_invalid_inputs_for_addition():
+    """
+    Test that providing non-list inputs to Addition.get_result raises a ValueError.
+    """
+    addition = Addition(user_id=dummy_user_id(), inputs="not-a-list")
+    with pytest.raises(ValueError, match="Inputs must be a list of numbers."):
+        addition.get_result()
+
+def test_invalid_inputs_for_subtraction():
+    """
+    Test that providing fewer than two numbers to Subtraction.get_result raises a ValueError.
+    """
+    subtraction = Subtraction(user_id=dummy_user_id(), inputs=[10])
+    with pytest.raises(ValueError, match="Inputs must be a list with at least two numbers."):
+        subtraction.get_result()
+
+def test_invalid_inputs_for_division():
+    """
+    Test that providing fewer than two numbers to Division.get_result raises a ValueError.
+    """
+    division = Division(user_id=dummy_user_id(), inputs=[10])
+    with pytest.raises(ValueError, match="Inputs must be a list with at least two numbers."):
+        division.get_result()
